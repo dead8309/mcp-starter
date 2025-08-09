@@ -22,11 +22,14 @@ MY_NUMBER = os.environ.get("MY_NUMBER")
 assert TOKEN is not None, "Please set AUTH_TOKEN in your .env file"
 assert MY_NUMBER is not None, "Please set MY_NUMBER in your .env file"
 
+
 # --- Auth Provider ---
 class SimpleBearerAuthProvider(BearerAuthProvider):
     def __init__(self, token: str):
         k = RSAKeyPair.generate()
-        super().__init__(public_key=k.public_key, jwks_uri=None, issuer=None, audience=None)
+        super().__init__(
+            public_key=k.public_key, jwks_uri=None, issuer=None, audience=None
+        )
         self.token = token
 
     async def load_access_token(self, token: str) -> AccessToken | None:
@@ -39,11 +42,13 @@ class SimpleBearerAuthProvider(BearerAuthProvider):
             )
         return None
 
+
 # --- Rich Tool Description model ---
 class RichToolDescription(BaseModel):
     description: str
     use_when: str
     side_effects: str | None = None
+
 
 # --- Fetch Utility Class ---
 class Fetch:
@@ -65,10 +70,19 @@ class Fetch:
                     timeout=30,
                 )
             except httpx.HTTPError as e:
-                raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to fetch {url}: {e!r}"))
+                raise McpError(
+                    ErrorData(
+                        code=INTERNAL_ERROR, message=f"Failed to fetch {url}: {e!r}"
+                    )
+                )
 
             if response.status_code >= 400:
-                raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to fetch {url} - status code {response.status_code}"))
+                raise McpError(
+                    ErrorData(
+                        code=INTERNAL_ERROR,
+                        message=f"Failed to fetch {url} - status code {response.status_code}",
+                    )
+                )
 
             page_raw = response.text
 
@@ -86,7 +100,9 @@ class Fetch:
     @staticmethod
     def extract_content_from_html(html: str) -> str:
         """Extract and convert HTML content to Markdown format."""
-        ret = readabilipy.simple_json.simple_json_from_html_string(html, use_readability=True)
+        ret = readabilipy.simple_json.simple_json_from_html_string(
+            html, use_readability=True
+        )
         if not ret or not ret.get("content"):
             return "<error>Page failed to be simplified from HTML</error>"
         content = markdownify.markdownify(ret["content"], heading_style=markdownify.ATX)
@@ -107,6 +123,7 @@ class Fetch:
                 return ["<error>Failed to perform search.</error>"]
 
         from bs4 import BeautifulSoup
+
         soup = BeautifulSoup(resp.text, "html.parser")
         for a in soup.find_all("a", class_="result__a", href=True):
             href = a["href"]
@@ -117,16 +134,19 @@ class Fetch:
 
         return links or ["<error>No results found.</error>"]
 
+
 # --- MCP Server Setup ---
 mcp = FastMCP(
     "Job Finder MCP Server",
     auth=SimpleBearerAuthProvider(TOKEN),
 )
 
+
 # --- Tool: validate (required by Puch) ---
 @mcp.tool
 async def validate() -> str:
     return MY_NUMBER
+
 
 # --- Tool: job_finder (now smart!) ---
 JobFinderDescription = RichToolDescription(
@@ -135,11 +155,21 @@ JobFinderDescription = RichToolDescription(
     side_effects="Returns insights, fetched job descriptions, or relevant job links.",
 )
 
+
 @mcp.tool(description=JobFinderDescription.model_dump_json())
 async def job_finder(
-    user_goal: Annotated[str, Field(description="The user's goal (can be a description, intent, or freeform query)")],
-    job_description: Annotated[str | None, Field(description="Full job description text, if available.")] = None,
-    job_url: Annotated[AnyUrl | None, Field(description="A URL to fetch a job description from.")] = None,
+    user_goal: Annotated[
+        str,
+        Field(
+            description="The user's goal (can be a description, intent, or freeform query)"
+        ),
+    ],
+    job_description: Annotated[
+        str | None, Field(description="Full job description text, if available.")
+    ] = None,
+    job_url: Annotated[
+        AnyUrl | None, Field(description="A URL to fetch a job description from.")
+    ] = None,
     raw: Annotated[bool, Field(description="Return raw HTML content if True")] = False,
 ) -> str:
     """
@@ -154,7 +184,9 @@ async def job_finder(
         )
 
     if job_url:
-        content, _ = await Fetch.fetch_url(str(job_url), Fetch.USER_AGENT, force_raw=raw)
+        content, _ = await Fetch.fetch_url(
+            str(job_url), Fetch.USER_AGENT, force_raw=raw
+        )
         return (
             f"🔗 **Fetched Job Posting from URL**: {job_url}\n\n"
             f"---\n{content.strip()}\n---\n\n"
@@ -163,12 +195,16 @@ async def job_finder(
 
     if "look for" in user_goal.lower() or "find" in user_goal.lower():
         links = await Fetch.google_search_links(user_goal)
-        return (
-            f"🔍 **Search Results for**: _{user_goal}_\n\n" +
-            "\n".join(f"- {link}" for link in links)
+        return f"🔍 **Search Results for**: _{user_goal}_\n\n" + "\n".join(
+            f"- {link}" for link in links
         )
 
-    raise McpError(ErrorData(code=INVALID_PARAMS, message="Please provide either a job description, a job URL, or a search query in user_goal."))
+    raise McpError(
+        ErrorData(
+            code=INVALID_PARAMS,
+            message="Please provide either a job description, a job URL, or a search query in user_goal.",
+        )
+    )
 
 
 # Image inputs and sending images
@@ -179,9 +215,13 @@ MAKE_IMG_BLACK_AND_WHITE_DESCRIPTION = RichToolDescription(
     side_effects="The image will be processed and saved in a black and white format.",
 )
 
+
 @mcp.tool(description=MAKE_IMG_BLACK_AND_WHITE_DESCRIPTION.model_dump_json())
 async def make_img_black_and_white(
-    puch_image_data: Annotated[str, Field(description="Base64-encoded image data to convert to black and white")] = None,
+    puch_image_data: Annotated[
+        str,
+        Field(description="Base64-encoded image data to convert to black and white"),
+    ] = None,
 ) -> list[TextContent | ImageContent]:
     import base64
     import io
@@ -203,10 +243,14 @@ async def make_img_black_and_white(
     except Exception as e:
         raise McpError(ErrorData(code=INTERNAL_ERROR, message=str(e)))
 
+
 # --- Run MCP Server ---
 async def main():
     print("🚀 Starting MCP server on http://0.0.0.0:8086")
-    await mcp.run_async("streamable-http", host="0.0.0.0", port=8086)
+    await mcp.run_async(
+        "streamable-http", host="0.0.0.0", port=os.environ.get("PORT", 8086)
+    )
+
 
 if __name__ == "__main__":
     asyncio.run(main())
